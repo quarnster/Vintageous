@@ -276,4 +276,4 @@ class ViRunCommand(sublime_plugin.TextCommand):
     def debug(self, *messages):
         state = VintageState(self.view)
         if state.settings.view['vintageous_verbose']:
-            print("Vintageous:", *messages)
+            print "Vintageous:", messages

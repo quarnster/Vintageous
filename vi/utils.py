@@ -138,11 +138,10 @@ def blink(times=4, delay=55):
     # Ensure we leave the setting as we found it.
     times = times if (times % 2) == 0 else times + 1
 
-    def do_blink():
-        nonlocal times
+    def do_blink(times):
         if times > 0:
             settings.set('highlight_line', not settings.get('highlight_line'))
             times -= 1
             sublime.set_timeout(do_blink, delay)
 
-    do_blink()
+    do_blink(times)
