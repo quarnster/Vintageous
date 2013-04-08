@@ -55,6 +55,7 @@ class VintageExRunSimpleTestsCommand(sublime_plugin.WindowCommand):
     def run(self, suite_name):
         bucket = io.StringIO()
         _, suite = test_suites[suite_name]
+
         suite = unittest.defaultTestLoader.loadTestsFromName(suite)
         unittest.TextTestRunner(stream=bucket, verbosity=1).run(suite)
 
@@ -66,10 +67,32 @@ class VintageExRunDataFileBasedTests(sublime_plugin.WindowCommand):
         self.window.open_file(TEST_DATA_PATH)
 
 
+# Lime doesn't allow setattr, so we need to wrap it.
+class HackView(object):
+    def __init__(self, real):
+        self.real = real
+        self.haxx = {}
+
+    def __getattr__(self, name, default=None):
+        if name in self.haxx:
+            return self.haxx[name]
+        else:
+            return getattr(self.real, name, default)
+
+    def __setattr__(self, name, obj):
+        if name == "real" or name == "haxx":
+            object.__setattr__(self, name, obj)
+        else:
+            self.haxx[name] = obj
+
+    def __delattr__(self, name):
+        if name in self.haxx:
+            del self.haxx[name]
+
 class TestDataDispatcher(sublime_plugin.EventListener):
     def on_load(self, view):
         if view.file_name() and os.path.basename(view.file_name()) == TEST_DATA_FILE_BASENAME:
-            TestsState.view = view
+            TestsState.view = HackView(view)
 
             _, suite_name = test_suites[TestsState.suite]
             suite = unittest.TestLoader().loadTestsFromName(suite_name)
