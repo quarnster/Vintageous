@@ -28,24 +28,30 @@ from Vintageous.vi.settings import VintageSettings
 from Vintageous.vi.marks import Marks
 
 
-# Some commands use input panels to gather user input. When they call their .on_done() method,
-# they most likely want the global state to remain untouched. However, an input panel is just
-# a view, so when it closes, the previous view gets activated and Vintageous init code runs.
-# This variable lets it know that is should exit early.
+# Some commands gather user input through input panels. An input panel is just a view, so when it
+# closes, the previous view gets activated and, consequently, Vintageous init code runs. However,
+# if we're exiting from an input panel, we most likely want the global state to remain unchanged.
+# This variable helps to signal this. For example, see the 'ViBufferSearch' command.
+#
 # XXX: Make this a class-level attribute of VintageState (had some trouble with it last time I tried).
 # XXX Is there anything weird with ST and using class-level attributes from different modules?
 _dont_reset_during_init = False
 
 
 def _init_vintageous(view):
+    """Initialize global data. Runs at startup and every time a view gets activated.
+    """
     global _dont_reset_during_init
-    # Operate only on actual views.
-    if (not getattr(view, 'settings') or
-            view.settings().get('is_widget')):
-        return
+
+    # Abort if we didn't get a real view.
+    if (not getattr(view, 'settings', None) or
+        view.settings().get('is_widget')):
+            return
 
     if _dont_reset_during_init:
-        # We are probably coming from an input panel, like when using '/'.
+        # We are probably coming from an input panel, like when using '/'. We don't want to reset
+        # the global state, as it main contain data needed to complete the command that's being
+        # built.
         _dont_reset_during_init = False
         return
 
@@ -81,26 +87,29 @@ class VintageState(object):
     """ Stores per-view state using View.Settings() for storage.
     """
 
-    # Makes yank data globally accesible.
     registers = Registers()
     context = KeyContext()
     marks = Marks()
+    macros = {}
 
     # Let's imitate Sublime Text's .command_history() 'null' value.
     _latest_repeat_command = ('', None, 0)
 
+    # Stores the latest recorded macro.
+    _latest_macro = None
+    _is_recording = False
+
     def __init__(self, view):
         self.view = view
-        # We have two types of settings: vi-specific (settings.vi) and regular
-        # ST view settings (settings.view).
+        # We have two types of settings: vi-specific (settings.vi) and regular ST view settings
+        # (settings.view).
         self.settings = SettingsManager(self.view)
 
     def enter_normal_mode(self):
         self.settings.view['command_mode'] = True
         self.settings.view['inverse_caret_state'] = True
-        # Make sure xpos is up to date when we return to normal mode. Insert mode does not affect
-        # xpos.
-        # XXX: Why is insert mode resetting xpos? xpos should never be reset?
+        # Xpos must be updated every time we return to normal mode, because it doesn't get
+        # updated while in insert mode.
         self.xpos = None if not self.view.sel() else self.view.rowcol(self.view.sel()[0].b)[1]
 
         if self.view.overwrite_status():
@@ -131,6 +140,7 @@ class VintageState(object):
         self.mode = MODE_VISUAL
 
     def enter_normal_insert_mode(self):
+        # This is the mode we enter when we give i a count, as in 5ifoobar<CR><ESC>.
         self.mode = MODE_NORMAL_INSERT
         self.settings.view['command_mode'] = False
         self.settings.view['inverse_caret_state'] = False
@@ -164,10 +174,10 @@ class VintageState(object):
         # would be empty. This would be undesirable, so we need to find out whether marked groups
         # in visual mode actually need to be glued or not and act based on that information.
 
-        # FIXME: Design issue. This method won't always work. We have actions like yy that
-        # will make this method return true, while it should return False (since it isn't a
+        # FIXME: Design issue. This method won't work always. We have actions like yy that
+        # will make this method return true, while it should return False (since yy isn't a
         # modifying command). However, yy signals in its own way that it's a non-modifying command.
-        # I don't think it will cause any bug, but we need to unify.
+        # I don't think this redundancy will cause any bug, but we need to unify nevetheless.
 
         if self.mode == MODE_VISUAL:
             visual_cmd = 'vi_enter_visual_mode'
@@ -177,15 +187,15 @@ class VintageState(object):
             return True
 
         cmds = []
-        # Set an upper limit for look-ups in the undo stack.
+        # Set an upper limit to look-ups in the undo stack.
         for i in range(0, -249, -1):
             cmd_name, args, _ = self.view.command_history(i)
             if (cmd_name == 'vi_run' and args['action'] and
                 args['action']['command'] == visual_cmd):
                     break
 
+            # Sublime Text returns ('', None, 0) when we hit the undo stack's bottom.
             if not cmd_name:
-                # Sublime Text returns ('', None, 0) when we hit the undo stack's bottom.
                 break
 
             cmds.append((cmd_name, args))
@@ -201,6 +211,8 @@ class VintageState(object):
 
     @property
     def mode(self):
+        """The current mode.
+        """
         return self.settings.vi['mode']
 
     @mode.setter
@@ -209,6 +221,8 @@ class VintageState(object):
 
     @property
     def cancel_action(self):
+        """Returns `True` if the current action must be cancelled.
+        """
         # If we can't find a suitable action, we should cancel.
         return self.settings.vi['cancel_action']
 
@@ -218,6 +232,8 @@ class VintageState(object):
 
     @property
     def action(self):
+        """Command's action; must be the name of a function in the `actions` module.
+        """
         return self.settings.vi['action']
 
     @action.setter
@@ -236,7 +252,7 @@ class VintageState(object):
 
         # Avoid recursion. The .reset() method will try to set this property to None, not ''.
         if name == '':
-            # The chord is invalid, so notify that we need to cancel the command in .run().
+            # The chord is invalid, so notify that we need to cancel the command in .eval().
             self.cancel_action = True
             return
 
@@ -244,6 +260,8 @@ class VintageState(object):
 
     @property
     def motion(self):
+        """Command's motion; must be the name of a function in the `motions` module.
+        """
         return self.settings.vi['motion']
 
     @motion.setter
@@ -252,6 +270,8 @@ class VintageState(object):
 
     @property
     def motion_digits(self):
+        """Count for the motion, like in 3k.
+        """
         return self.settings.vi['motion_digits'] or []
 
     @motion_digits.setter
@@ -268,6 +288,8 @@ class VintageState(object):
 
     @property
     def action_digits(self):
+        """Count for the action, as in 3dd.
+        """
         return self.settings.vi['action_digits'] or []
 
     @action_digits.setter
@@ -302,16 +324,20 @@ class VintageState(object):
         return self.count
 
     @property
-    def register(self):
-        return self.settings.vi['register'] or None
-
-    @property
     def expecting_register(self):
+        """Signals that we need more input from the user before evaluating the global data.
+        """
         return self.settings.vi['expecting_register']
 
     @expecting_register.setter
     def expecting_register(self, value):
         self.settings.vi['expecting_register'] = value
+
+    @property
+    def register(self):
+        """Name of the register provided by the user, as in "ayy.
+        """
+        return self.settings.vi['register'] or None
 
     @register.setter
     def register(self, name):
@@ -321,6 +347,8 @@ class VintageState(object):
 
     @property
     def expecting_user_input(self):
+        """Signals that we need more input from the user before evaluating the global data.
+        """
         return self.settings.vi['expecting_user_input']
 
     @expecting_user_input.setter
@@ -329,6 +357,8 @@ class VintageState(object):
 
     @property
     def user_input(self):
+        """Additional data provided by the user, as 'a' in @a.
+        """
         return self.settings.vi['user_input'] or None
 
     @user_input.setter
@@ -338,24 +368,29 @@ class VintageState(object):
 
     @property
     def last_buffer_search(self):
+        """Returns the latest buffer search string or `None`. Used by the n and N commands.
+        """
         return self.settings.vi['last_buffer_search'] or None
 
     @last_buffer_search.setter
     def last_buffer_search(self, value):
         self.settings.vi['last_buffer_search'] = value
-        self.expecting_user_input = False
 
     @property
     def last_character_search(self):
+        """Returns the latest character search or `None`. Used by the , and ; commands.
+        """
         return self.settings.vi['last_character_search'] or None
 
     @last_character_search.setter
     def last_character_search(self, value):
+        # TODO: Should this piece of data be global instead of local to each buffer?
         self.settings.vi['last_character_search'] = value
-        self.expecting_user_input = False
 
     @property
     def xpos(self):
+        """Maintains the current column for the caret in normal and visual mode.
+        """
         xpos = self.settings.vi['xpos']
         return xpos if isinstance(xpos, int) else None
 
@@ -365,6 +400,9 @@ class VintageState(object):
 
     @property
     def next_mode(self):
+        """Mode to transition to after the command has been run. For example, ce needs to change
+           to insert mode after it's run.
+        """
         next_mode = self.settings.vi['next_mode'] or MODE_NORMAL
         return next_mode
 
@@ -374,6 +412,8 @@ class VintageState(object):
 
     @property
     def next_mode_command(self):
+        """Command to make the transitioning to the next mode.
+        """
         next_mode_command = self.settings.vi['next_mode_command']
         return next_mode_command
 
@@ -383,6 +423,8 @@ class VintageState(object):
 
     @property
     def repeat_command(self):
+        """Latest modifying command performed. Accessed via '.'.
+        """
         # This property is volatile. It won't be persisted between sessions.
         return VintageState._latest_repeat_command
 
@@ -390,11 +432,34 @@ class VintageState(object):
     def repeat_command(self, value):
         VintageState._latest_repeat_command = value
 
+    @property
+    def latest_macro(self):
+        """Latest macro recorded. Accessed via @@.
+        """
+        return VintageState._latest_macro
+
+    @latest_macro.setter
+    def latest_macro(self, value):
+        VintageState._latest_macro = value
+
+    @property
+    def is_recording(self):
+        """Signals that we're recording a macro.
+        """
+        return VintageState._is_recording
+
+    @is_recording.setter
+    def is_recording(self, value):
+        VintageState._is_recording = value
+
     def parse_motion(self):
+        """Returns a CmdData instance with parsed motion data.
+        """
         vi_cmd_data = CmdData(self)
 
         # This should happen only at initialization.
         # XXX: This is effectively zeroing xpos. Shouldn't we move this into new_vi_cmd_data()?
+        # XXX: REFACTOR
         if vi_cmd_data['xpos'] is None:
             xpos = 0
             if self.view.sel():
@@ -402,26 +467,36 @@ class VintageState(object):
             self.xpos = xpos
             vi_cmd_data['xpos'] = xpos
 
-        # Make sure we run NORMAL mode actions taking motions in _MODE_INTERNAL_NORMAL mode.
-        if ((self.mode in (MODE_VISUAL, MODE_VISUAL_LINE)) or
-            (self.motion and self.action) or
-            (self.action and self.mode == MODE_NORMAL)):
-                if self.mode not in (MODE_VISUAL, MODE_VISUAL_LINE):
-                    vi_cmd_data['mode'] = _MODE_INTERNAL_NORMAL
-                else:
-                    vi_cmd_data['mode'] = self.mode
+        # Actions originating in normal mode are run in a pseudomode that helps to distiguish
+        # between visual mode and this case (both use selections, either implicitly or
+        # explicitly).
+        if self.mode == MODE_NORMAL:
+            if ((self.motion and self.action) or self.action):
+                vi_cmd_data['mode'] = _MODE_INTERNAL_NORMAL
 
         motion = self.motion
         motion_func = None
         if motion:
-            motion_func = getattr(motions, self.motion)
+            try:
+                motion_func = getattr(motions, self.motion)
+            except AttributeError:
+                raise AttributeError("Vintageous: Unknown motion: '{0}'".format(self.motion))
+
         if motion_func:
             vi_cmd_data = motion_func(vi_cmd_data)
 
         return vi_cmd_data
 
     def parse_action(self, vi_cmd_data):
-        action_func = getattr(actions, self.action)
+        """Updates and returns the passed-in CmdData instance using parsed data about the action.
+        """
+        try:
+            action_func = getattr(actions, self.action)
+        except AttributeError:
+            raise AttributeError("Vintageous: Unknown action: '{0}'".format(self.action))
+        except TypeError:
+            raise TypeError("Vintageous: parse_action requires an action be specified.")
+
         if action_func:
             vi_cmd_data = action_func(vi_cmd_data)
 
@@ -524,12 +599,9 @@ class VintageState(object):
 
         self.update_status()
 
-    def reset(self, next_mode=None):
-        # Some global data must be kept untouched. For example, that's the case of the lastest repeat
-        # command. When switching files, Vintageous will be init'ed, and that data will be overwritten,
-        # but since we're not creating a new command, it doesn't make sense.
-        # FIXME: Not every action should update the latest repeat command.
-
+    def reset(self):
+        """Reset global state.
+        """
         had_action = self.action
 
         self.motion = None
@@ -550,16 +622,9 @@ class VintageState(object):
         self.motion_digits = []
         self.action_digits = []
 
-        if self.next_mode == MODE_INSERT:
-            # XXX: Is this redundant?
-            self.enter_insert_mode()
+        if self.next_mode in (MODE_NORMAL, MODE_INSERT):
             if self.next_mode_command:
                 self.view.run_command(self.next_mode_command)
-        elif self.next_mode == MODE_NORMAL:
-            if self.next_mode_command:
-                self.view.run_command(self.next_mode_command)
-        else:
-            pass
 
         # Sometimes we'll reach this point after performing motions. If we have a stored repeat
         # command in view A, we switch to view B and do a motion, we don't want .update_repeat_command()
@@ -574,14 +639,13 @@ class VintageState(object):
             self.update_repeat_command()
 
         self.next_mode = MODE_NORMAL
-
         self.next_mode_command = None
 
     def update_repeat_command(self):
         """Vintageous manages the repeat command on its own. Vim stores away the latest modifying
            command as the repeat command, and does not wipe it when undoing. On the contrary,
-           Sublime Text will update the substitute command as you undo past the current one. The
-           then previous latest modifying command becomes the new repeat command, and so on.
+           Sublime Text will update the repeat command as soon as you undo past the current one.
+           The then previous latest modifying command becomes the new repeat command, and so on.
         """
         cmd, args, times = self.view.command_history(0, True)
 
@@ -612,18 +676,22 @@ class VintageState(object):
 
         self.xpos = xpos
 
+    # TODO: Test me.
     def update_status(self):
+        """Print to Sublime Text's status bar.
+        """
         mode_name = mode_to_str(self.mode) or ""
         mode_name = "-- %s --" % mode_name if mode_name else ""
         sublime.status_message(mode_name)
 
 
+# TODO: Test me.
 class VintageStateTracker(sublime_plugin.EventListener):
     def on_load(self, view):
         _init_vintageous(view)
 
     def on_post_save(self, view):
-        # Make sure that the carets are within valid bounds. This is for example a concern when
+        # Ensure the carets are within valid bounds. For instance, this is a concern when
         # `trim_trailing_white_space_on_save` is set to true.
         state = VintageState(view)
         view.run_command('_vi_adjust_carets', {'mode': state.mode})
@@ -633,6 +701,7 @@ class VintageStateTracker(sublime_plugin.EventListener):
         return vintage_state.context.check(key, operator, operand, match_all)
 
 
+# TODO: Test me.
 class ViFocusRestorerEvent(sublime_plugin.EventListener):
     def __init__(self):
         self.timer = None
@@ -654,8 +723,9 @@ class ViFocusRestorerEvent(sublime_plugin.EventListener):
         self.timer.start()
 
 
+# TODO: Test me.
 class IrreversibleTextCommand(sublime_plugin.TextCommand):
-    """ Abstract class.
+    """ Base class.
 
         The undo stack will ignore commands derived from this class. This is
         useful to prevent global state management commands from shadowing

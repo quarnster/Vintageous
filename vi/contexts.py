@@ -6,15 +6,9 @@ from Vintageous.vi import utils
 
 
 class KeyContext(object):
-    def __init__(self, state=None):
-        # TODO: Why do we have an __init__? We should be able to set up the class inside the
-        # __get__ method instead.
-        self.state = state
-
     def __get__(self, instance, owner):
-        if instance is not None:
-            return KeyContext(instance)
-        return KeyContext()
+        self.state = instance
+        return self
 
     def vi_must_change_mode(self, key, operator, operand, match_all):
         is_normal_mode = self.state.settings.view['command_mode']
@@ -130,6 +124,10 @@ class KeyContext(object):
         motion_digits = not self.state.motion
         action_digits = self.state.motion
         value = motion_digits or action_digits
+        return self._check(value, operator, operand, match_all)
+
+    def vi_is_recording_macro(self, key, operator, operand, match_all):
+        value = self.state.is_recording
         return self._check(value, operator, operand, match_all)
 
     def vi_can_enter_any_visual_mode(self, key, operator, operand, match_all):

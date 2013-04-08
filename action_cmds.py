@@ -340,14 +340,14 @@ class ViExpressionRegister(sublime_plugin.TextCommand):
                     state.registers[REG_EXPRESSION] = rv
                 else:
                     self.view.run_command('insert_snippet', {'contents': str(rv[0])})
-                    state.reset(next_mode=MODE_INSERT)
+                    state.reset()
             except:
                 sublime.status_message("Vintageous: Invalid expression.")
                 on_cancel()
 
         def on_cancel():
             state = VintageState(self.view)
-            state.reset(next_mode=MODE_INSERT)
+            state.reset()
 
         self.view.window().show_input_panel('', '', on_done, None, on_cancel)
 
@@ -568,6 +568,9 @@ class _vi_undo(IrreversibleTextCommand):
     Sublime Text we lose that information (at least it doesn't seem to be straightforward to
     obtain).
     """
+    #  !!! This is a special command that does not go through the usual processing. !!!
+    #  !!! It must skip the undo stack. !!!
+
     # TODO: It must be possible store or retrieve the actual position of the caret before the
     # visual selection performed by the user.
     def run(self):
@@ -580,7 +583,9 @@ class _vi_undo(IrreversibleTextCommand):
             else:
                 return sublime.Region(s.a, s.a)
 
-        self.view.run_command('undo')
+        state = VintageState(self.view)
+        for i in range(state.count):
+            self.view.run_command('undo')
 
         if self.view.has_non_empty_selection_region():
             regions_transformer(self.view, f)
@@ -593,31 +598,47 @@ class _vi_undo(IrreversibleTextCommand):
             self.view.run_command('move', {'by': 'characters', 'forward': False})
             # ////////////////////////////////////////////////////////////////////
 
-        VintageState(self.view).update_xpos()
+        state.update_xpos()
+        # Ensure that we wipe the count, if any.
+        state.reset()
 
 
 class _vi_repeat(IrreversibleTextCommand):
     """Vintageous manages the repeat operation on its own to ensure that we always use the latest
        modifying command, instead of being tied to the undo stack (as Sublime Text is by default).
     """
+
+    #  !!! This is a special command that does not go through the usual processing. !!!
+    #  !!! It must skip the undo stack. !!!
+
     def run(self):
         state = VintageState(self.view)
+
         try:
             cmd, args, _ = state.repeat_command
         except TypeError:
+            # Unreachable.
             return
 
-        if cmd == 'vi_run':
+        if not cmd:
+            return
+        elif cmd == 'vi_run':
             args['next_mode'] = MODE_NORMAL
             args['follow_up_mode'] = 'vi_enter_normal_mode'
-
+            args['count'] = state.count * args['count']
+            self.view.run_command(cmd, args)
         elif cmd == 'sequence':
             for i, _ in enumerate(args['commands']):
                 # Access this shape: {"commands":[['vi_run', {"foo": 100}],...]}
                 args['commands'][i][1]['next_mode'] = MODE_NORMAL
                 args['commands'][i][1]['follow_up_mode'] = 'vi_enter_normal_mode'
 
-        self.view.run_command(cmd, args)
+            # TODO: Implement counts properly for 'sequence' command.
+            for i in range(state.count):
+                self.view.run_command(cmd, args)
+
+        # Ensure we wipe count data if any.
+        state.reset()
         # XXX: Needed here? Maybe enter_... type commands should be IrreversibleCommands so we
         # must/can call them whenever we need them withouth affecting the undo stack.
         self.view.run_command('vi_enter_normal_mode')
@@ -730,3 +751,53 @@ class _vi_g_v(IrreversibleTextCommand):
         self.view.sel().clear()
         for r in regs:
             self.view.sel().add(r)
+
+
+class ViQ(IrreversibleTextCommand):
+    def run(self):
+        state = VintageState(self.view)
+        state.action = 'vi_q'
+        state.expecting_user_input = True
+
+
+class _vi_q(IrreversibleTextCommand):
+    def run(self, name=None):
+        state = VintageState(self.view)
+
+        if name == None and not state.is_recording:
+            return
+
+        if not state.is_recording:
+            state._latest_macro_name = name
+            state.is_recording = True
+            self.view.run_command('start_record_macro')
+            return
+
+        if state.is_recording:
+            self.view.run_command('stop_record_macro')
+            state.is_recording = False
+            state.reset()
+
+            # Store the macro away.
+            modifying_cmd = self.view.command_history(0, True)
+            state.latest_macro = modifying_cmd
+
+
+class _vi_run_macro(IrreversibleTextCommand):
+    def run(self, name=None):
+        if not (name and VintageState(self.view).latest_macro):
+            return
+
+        if name == '@':
+            # Run the macro recorded latest.
+            self.view.run_command('run_macro')
+        else:
+            # TODO: Implement macro registers.
+            self.view.run_command('run_command')
+
+
+class ViAt(IrreversibleTextCommand):
+    def run(self):
+        state = VintageState(self.view)
+        state.action = 'vi_at'
+        state.expecting_user_input = True

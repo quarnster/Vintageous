@@ -236,7 +236,7 @@ def vi_big_d(vi_cmd_data):
         vi_cmd_data['count'] = vi_cmd_data['count'] - 1
         vi_cmd_data['motion']['command'] = 'move'
         vi_cmd_data['motion']['args'] = {'by': 'lines', 'forward': True, 'extend': True}
-        vi_cmd_data['post_motion'] = [['extend_to_minimal_width',], ['visual_extend_to_line',]]
+        vi_cmd_data['post_motion'] = [['_vi_big_b_post_motion', {'mode': vi_cmd_data['mode']}],]
 
         vi_cmd_data['motion_required'] = False
         vi_cmd_data['action']['command'] = 'right_delete'
@@ -272,8 +272,8 @@ def vi_big_s(vi_cmd_data):
         # Avoid S'ing one line too many.
         vi_cmd_data['count'] = vi_cmd_data['count'] - 1
         vi_cmd_data['motion']['command'] = 'move'
-        vi_cmd_data['motion']['args'] = {'by': 'lines', 'forward': True}
-        vi_cmd_data['post_motion'] = [['extend_to_minimal_width',], ['visual_extend_to_line',],]
+        vi_cmd_data['motion']['args'] = {'by': 'lines', 'forward': True, 'extend': True}
+        vi_cmd_data['post_motion'] = [['_vi_big_s_post_motion' ,{'mode': vi_cmd_data['mode']}],]
 
         vi_cmd_data['motion_required'] = False
         vi_cmd_data['action']['command'] = 'right_delete'
@@ -810,5 +810,22 @@ def vi_equals_equals(vi_cmd_data):
     vi_cmd_data['action']['args'] = {}
 
     vi_cmd_data['follow_up_mode'] = 'vi_enter_normal_mode'
+
+    return vi_cmd_data
+
+def vi_q(vi_cmd_data):
+    vi_cmd_data['motion_required'] = False
+    vi_cmd_data['action']['command'] = '_vi_q'
+    vi_cmd_data['action']['args'] = {'name': vi_cmd_data['user_input']}
+    vi_cmd_data['count'] = 1
+
+    return vi_cmd_data
+
+
+def vi_at(vi_cmd_data):
+    vi_cmd_data['motion_required'] = False
+    vi_cmd_data['action']['command'] = '_vi_run_macro'
+    vi_cmd_data['action']['args'] = {'name': vi_cmd_data['user_input']}
+    vi_cmd_data['count'] = 1
 
     return vi_cmd_data
