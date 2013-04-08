@@ -3,7 +3,8 @@ import sublime_plugin
 
 import os
 import unittest
-import io
+#import io
+import StringIO as io
 
 TEST_DATA_PATH = None
 TEST_DATA_FILE_BASENAME = 'sample.txt'
@@ -63,6 +64,7 @@ class VintageExRunSimpleTestsCommand(sublime_plugin.WindowCommand):
 
 class VintageExRunDataFileBasedTests(sublime_plugin.WindowCommand):
     def run(self, suite_name):
+        TestsState.suite = suite_name
         self.window.open_file(TEST_DATA_PATH)
 
 

@@ -135,7 +135,7 @@ class Registers(object):
         assert name in "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "Can only append to A-Z registers."
 
         existing_values = _REGISTER_DATA.get(name.lower(), '')
-        new_values = itertools.zip_longest(existing_values, suffixes, fillvalue='')
+        new_values = itertools.izip_longest(existing_values, suffixes, fillvalue='')
         new_values = [(prefix + suffix) for (prefix, suffix) in new_values]
         _REGISTER_DATA[name.lower()] = new_values
         self._set_default_register(new_values)
