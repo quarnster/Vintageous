@@ -55,7 +55,6 @@ class VintageExRunSimpleTestsCommand(sublime_plugin.WindowCommand):
     def run(self, suite_name):
         bucket = io.StringIO()
         _, suite = test_suites[suite_name]
-
         suite = unittest.defaultTestLoader.loadTestsFromName(suite)
         unittest.TextTestRunner(stream=bucket, verbosity=1).run(suite)
 
@@ -65,6 +64,7 @@ class VintageExRunSimpleTestsCommand(sublime_plugin.WindowCommand):
 class VintageExRunDataFileBasedTests(sublime_plugin.WindowCommand):
     def run(self, suite_name):
         self.window.open_file(TEST_DATA_PATH)
+        TestsState.suite = suite_name
 
 
 # Lime doesn't allow setattr, so we need to wrap it.
