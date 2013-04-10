@@ -70,11 +70,13 @@ def _init_vintageous(view):
     state.reset()
 
 
+# TODO: Test me.
 def plugin_loaded():
     view = sublime.active_window().active_view()
     _init_vintageous(view)
 
 
+# TODO: Test me.
 def unload_handler():
     for w in sublime.windows():
         for v in w.views():
@@ -512,7 +514,7 @@ class VintageState(object):
 
         return vi_cmd_data
 
-    def do_cancel_action(self):
+    def eval_cancel_action(self):
         """Cancels the whole run of the command.
         """
         # TODO: add a .parse() method that includes boths steps?
@@ -526,7 +528,7 @@ class VintageState(object):
         if vi_cmd_data['_exit_mode_command']:
             self.view.run_command(vi_cmd_data['_exit_mode_command'])
 
-    def do_full_command(self):
+    def eval_full_command(self):
         """Evaluates a command like 3dj, where there is an action as well as a motion.
         """
         vi_cmd_data = self.parse_motion()
@@ -556,7 +558,7 @@ class VintageState(object):
                 self.enter_normal_mode()
                 self.reset()
 
-    def do_lone_action(self):
+    def eval_lone_action(self):
         """Evaluate lone action like in 'd' or 'esc'. Some actions can be run without a motion.
         """
         vi_cmd_data = self.parse_motion()
@@ -588,12 +590,12 @@ class VintageState(object):
         """
 
         if self.cancel_action:
-            self.do_cancel_action()
+            self.eval_cancel_action()
             self.reset()
 
         # Action + motion, like in '3dj'.
         elif self.action and self.motion:
-            self.do_full_command()
+            self.eval_full_command()
 
         # Motion only, like in '3j'.
         elif self.motion:
@@ -604,7 +606,7 @@ class VintageState(object):
 
         # Action only, like in 'd' or 'esc'. Some actions can be executed without a motion.
         elif self.action:
-            self.do_lone_action()
+            self.eval_lone_action()
 
     def reset(self):
         """Reset global state.
@@ -669,6 +671,7 @@ class VintageState(object):
             # feel right...
             self.repeat_command = cmd, args, times
 
+    # TODO: Test me.
     def update_xpos(self):
         first_sel = self.view.sel()[0]
         xpos = 0
